@@ -20,10 +20,9 @@ class Room:
         self.room_name = room_name
         self.npc = npc
         self.boss = boss
-        self.connections = connections or {}
+        self.connections = connections or {}  # Dictionary to hold neighboring rooms
 
     def generate_random_room_description(self):
-        # Using the OpenAI API generation method you specified
         prompt = f"Generate a description for a D&D room called {self.room_name}. It could be a normal room or a boss room."
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -41,14 +40,13 @@ class Room:
             room_description += "There is a terrifying boss here!\n"
         return room_description
 
+
 # Define the Player class
 class Player:
     def __init__(self, name):
         self.name = name
         self.inventory = ["health_potion"]
         self.health = 100
-        self.xp = 0  # XP counter
-        self.level = 1
         self.room = None  # Current room
 
     def attack(self, enemy_health):
@@ -73,28 +71,10 @@ class Player:
 
     def move(self, direction, rooms):
         if direction in self.room.connections:
-            next_room_id = self.room.connections[direction]
-            return rooms[next_room_id]
+            return rooms[self.room.connections[direction]]
         else:
-            print("You can't move in that direction.")
-            return self.room  # Stay in the same room if the direction is invalid
+            return None  # Invalid direction
 
-    def level_up(self):
-        if self.xp >= 100:  # Level up condition
-            self.level += 1
-            self.health += 20  # Increase health on level up
-            self.xp = 0  # Reset XP after leveling up
-            return f"Congratulations! You've reached level {self.level} and gained 20 extra health!"
-        return None  # No level up yet
-
-    def enemy_attack(self):
-        roll = random.randint(1, 20)
-        if roll > 10:
-            damage = random.randint(5, 15)
-            self.health -= damage
-            return f"The enemy attacks! You take {damage} damage."
-        else:
-            return "The enemy misses their attack!"
 
 # Function to generate NPC or Boss chance
 def generate_npc_or_boss():
@@ -109,6 +89,7 @@ def generate_npc_or_boss():
         return "Dragon"  # 10% chance of boss (Dragon)
     return None
 
+
 # Create dungeon map and state management
 def create_dungeon():
     rooms = {}
@@ -117,30 +98,31 @@ def create_dungeon():
     rooms[room_count] = start_room
     room_count += 1
     current_room = start_room
-    previous_room = None
 
-    # Generate connected rooms
-    for i in range(1, 10):  # Create 10 rooms for now
-        room_name = f"Room {i+1}"
+    # Initially create 4 neighboring rooms for the start room
+    for direction in ["north", "south", "east", "west"]:
+        room_name = f"Room {room_count}"
         npc = generate_npc_or_boss()
         boss = random.choice([True, False])
         room = Room(room_count, room_name, npc=npc, boss=boss)
-
-        # Link rooms in all 4 directions (ensure north, south, east, west connections)
-        if current_room:
-            current_room.connections["east"] = room.room_id
-            room.connections["west"] = current_room.room_id
-        
-        if previous_room:
-            previous_room.connections["south"] = room.room_id
-            room.connections["north"] = previous_room.room_id
-
+        start_room.connections[direction] = room.room_id
+        room.connections[get_opposite_direction(direction)] = start_room.room_id
         rooms[room_count] = room
-        current_room = room
         room_count += 1
-        previous_room = current_room
 
     return rooms, start_room
+
+
+def get_opposite_direction(direction):
+    """Return the opposite direction."""
+    opposite_directions = {
+        "north": "south",
+        "south": "north",
+        "east": "west",
+        "west": "east"
+    }
+    return opposite_directions[direction]
+
 
 # Game loop
 def game_loop():
@@ -149,10 +131,15 @@ def game_loop():
     rooms, start_room = create_dungeon()
 
     player.room = start_room
-    print(player.room.describe())
+    print(player.room.describe())  # Show the start room description
+
+    visited_rooms = set()  # Keep track of visited rooms for backtracking
+    visited_rooms.add(player.room.room_id)  # Add the start room as visited
+
+    previous_room = None  # To store the previous room for backtracking
 
     while True:
-        print("\nChoose an action:")
+        print("\nChoose an action: (Type the number)")
         print("1. Move (north / south / east / west)")
         print("2. Fight")
         print("3. Heal")
@@ -163,59 +150,62 @@ def game_loop():
 
         if action == "1":
             direction = input("Which direction would you like to move? (north / south / east / west): ").lower()
-            print(player.room.describe())
-            new_room = player.move(direction, rooms)
-            player.room = new_room  # Update player's current room after movement
-            print(player.room.describe())
+            if direction in player.room.connections:
+                new_room = player.move(direction, rooms)
+                if new_room:
+                    # Save the current room as the previous room for backtracking
+                    previous_room = player.room
+                    player.room = new_room
+                    visited_rooms.add(player.room.room_id)  # Mark the new room as visited
+
+                    # Ensure all 4 neighboring rooms are generated (if not already done)
+                    for direction in ["north", "south", "east", "west"]:
+                        if direction not in player.room.connections:
+                            room_name = f"Room {len(rooms)+1}"
+                            npc = generate_npc_or_boss()
+                            boss = random.choice([True, False])
+                            room = Room(len(rooms), room_name, npc=npc, boss=boss)
+                            player.room.connections[direction] = room.room_id
+                            room.connections[get_opposite_direction(direction)] = player.room.room_id
+                            rooms[len(rooms)] = room
+
+                    # Ensure the previous room maintains the connection to the new room
+                    if previous_room:
+                        previous_room.connections[get_opposite_direction(direction)] = player.room.room_id
+                        player.room.connections[get_opposite_direction(direction)] = previous_room.room_id
+
+                    # Print the new room's description only
+                    print(player.room.describe())
+
+                else:
+                    print("You can't move in that direction.")
+            else:
+                print("You can't move in that direction.")
 
         elif action == "2":
             if player.room.npc:
-                enemy_health = 40  # Set enemy health to 40
-                print(f"A wild {player.room.npc} appears! (Health: {enemy_health})")
-                while player.health > 0 and enemy_health > 0:
-                    print(f"Your health: {player.health} | Enemy health: {enemy_health}")
-                    print("1. Attack")
-                    print("2. Heal")
-                    print("3. Flee")
-                    choice = input("What will you do? ")
+                print(f"A wild {player.room.npc} appears!")
+                print("1. Attack")
+                print("2. Heal")
+                print("3. Flee")
+                choice = input("What will you do? ")
 
-                    if choice == "1":
-                        attack_result = player.attack(enemy_health)
-                        print(attack_result)
-                        enemy_health -= random.randint(5, 15)  # Reduce enemy health
-                    elif choice == "2":
-                        heal_result = player.heal()
-                        print(heal_result)
-                    elif choice == "3":
-                        flee_result = player.flee()
-                        print(flee_result)
-                        break  # Exit the combat loop
-                    else:
-                        print("Invalid action.")
-
-                    if enemy_health <= 0:
-                        print(f"You defeated the {player.room.npc}!")
-                        player.xp += 50
-                        print(f"XP Gained: 50")  # Print the XP gained
-                        level_up_result = player.level_up()
-                        if level_up_result:
-                            print(level_up_result)
-                        break
-
-                    if player.health <= 0:
-                        print("You have been defeated. Game over!")
-                        return  # Exit the game
-
-                    # Enemy's turn to attack
-                    enemy_attack_result = player.enemy_attack()
-                    print(enemy_attack_result)
-
+                if choice == "1":
+                    attack_result = player.attack(100)
+                    print(attack_result)
+                elif choice == "2":
+                    heal_result = player.heal()
+                    print(heal_result)
+                elif choice == "3":
+                    flee_result = player.flee()
+                    print(flee_result)
+                else:
+                    print("Invalid action.")
             else:
                 print("There are no enemies in this room.")
 
         elif action == "3":
-            heal_result = player.heal()
-            print(heal_result)
+            print("Your inventory:", player.inventory)
 
         elif action == "4":
             print("Your health:", player.health)
@@ -227,6 +217,7 @@ def game_loop():
 
         else:
             print("Invalid action.")
+
 
 if __name__ == "__main__":
     game_loop()
