@@ -57,7 +57,7 @@ def get_location_description(location_name, game_state):
         return "The room is quiet and uneventful."
 
 # Each time a room is entered, generate new connected rooms, with up to 1-3 new rooms
-def generate_new_rooms(current_room, existing_rooms):
+def generate_new_rooms(current_room, existing_rooms, game_state):
     new_rooms = []
     directions = random.sample(DIRECTIONS, random.randint(1, 3))
     for direction in directions:
@@ -65,6 +65,14 @@ def generate_new_rooms(current_room, existing_rooms):
         if new_room_name not in existing_rooms:
             existing_rooms.add(new_room_name)
             new_rooms.append(new_room_name)
+            
+            if random.random() < 0.33:
+                game_state.npcs[new_room_name] = random.choice(NPCS)
+            elif random.random() < 0.33:
+                game_state.items[new_room_name] = random.sample([key for key in ITEMS if key != "boss_key"], k=1)
+            elif random.random() < 0.33:
+                game_state.chests[new_room_name] = "chest"
+    
     return new_rooms
 
 
@@ -242,3 +250,36 @@ class GameState:
             description = get_location_description(self.current_room, self)
             print(description)
 
+# Main function to run the game
+def main():
+    print("Welcome to the AI Dungeon Master!")
+    game_state = GameState()
+    game_state.load_state()
+
+    while game_state.player_hp > 0:
+        print(f"\nCurrent Room: {game_state.current_room}")
+        print(f"\n{get_location_description(game_state.current_room, game_state)}")
+        print(f"HP: {game_state.player_hp}, XP: {game_state.player_xp}")
+        print(f"Inventory: {', '.join(game_state.inventory) if game_state.inventory else 'empty'}")
+        
+        action = input("What do you want to do? (move/encounter/check inventory/save/quit): ").strip().lower()
+        
+        if action == "move":
+            game_state.move_player()
+        elif action == "encounter":
+            game_state.encounter_npc()
+        elif action == "check inventory":
+            game_state.check_inventory()
+        elif action == "save":
+            game_state.save_state()
+            print("Game saved.")
+        elif action == "quit":
+            print("Exiting the game.")
+            break
+        else:
+            print("Invalid action. Please try again.")
+
+    print("Game over!")
+
+if __name__ == "__main__":
+    main()
