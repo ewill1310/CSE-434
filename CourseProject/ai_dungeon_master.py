@@ -12,13 +12,13 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Constants for game mechanics
 STARTING_HP = 50
+MAX_HP = 50
 STARTING_XP = 0
 XP_FOR_LEVEL_UP = 50
-ITEMS = {"key": "A rusty key that opens a door.", "potion": "A healing potion that restores 10 HP.", "boss_key": "A key that opens the boss room."}
+ITEMS = {"key": "A rusty key that opens a door.", "potion": "A healing potion that restores 20 HP.","trophy": "A token that shows of a bosses defeat"}
 NPCS = ["Goblin", "Orc", "Troll", "Bandit", "Human", "Elf", "Dwarf", "Demon"]
 DIRECTIONS = ['north', 'south', 'east', 'west']
 BOSS_NAME = ["Dragon", "Lich King", "Goblin Queen", "High Elf", "Dwarf God", "Omega Troll", "Basalisk"]
-
 
 
 # Utility Functions for game interactions
@@ -38,7 +38,7 @@ def get_location_description(location_name, game_state):
     
     # Adding specific details for the boss room or any room with items or NPCs
     if location_name == game_state.boss_room:
-        prompt += f"The room is the {random.choice(BOSS_NAME)}'s lair, dark and foreboding. The air feels still and the room is ominous. The only enemy here is the boss."
+        prompt += f"The room is the {game_state.boss}'s lair, dark and foreboding. The air feels still and the room is ominous. The only enemy here is the boss."
     elif location_name in game_state.npcs:
         prompt += f"There is a {game_state.npcs[location_name]} lurking in this room."
     if location_name in game_state.items:
@@ -66,13 +66,20 @@ def generate_new_rooms(current_room, existing_rooms, game_state):
             existing_rooms.add(new_room_name)
             new_rooms.append(new_room_name)
             
-            if random.random() < 0.33:
+            # 1% chance the new room is the boss room
+            if random.random() < 0.01:
+                game_state.boss_room = new_room_name
+                game_state.boss = random.choice(BOSS_NAME)
+            
+            # 50% chance of an NPC being in the room
+            if random.random() < 0.5:
                 game_state.npcs[new_room_name] = random.choice(NPCS)
-            elif random.random() < 0.33:
-                game_state.items[new_room_name] = random.sample([key for key in ITEMS if key != "boss_key"], k=1)
-            elif random.random() < 0.33:
-                game_state.chests[new_room_name] = "chest"
-    
+            
+            # 50% chance of a random item
+            game_state.items[new_room_name] = game_state.items.get(new_room_name, [])
+            if random.random() < 0.5:
+                game_state.items[new_room_name].append(random.choice([key for key in ITEMS if key != "trophy"]))
+            
     return new_rooms
 
 
@@ -83,6 +90,7 @@ class GameState:
     def __init__(self):
         self.player_hp = STARTING_HP
         self.player_xp = STARTING_XP
+        self.max_hp = MAX_HP
         self.level = 1
         self.inventory = []
         self.dungeon_name = generate_dungeon_name()
@@ -90,48 +98,18 @@ class GameState:
         self.visited_rooms = set()
         self.current_room = "Entrance"
         self.npcs = {"Entrance": random.choice(NPCS)}
-        self.items = {"Entrance": random.sample([key for key in ITEMS if key != "boss_key"], k=1)}
+        self.items = {"Entrance": random.sample([key for key in ITEMS if key != "trophy"], k=1)}
         self.chests = {}
         self.keys = {}
-        self.spawn_keys_and_chests()
-        self.spawn_npcs()
-        self.boss_key = ["boss_key"]
+        self.boss = random.choice(BOSS_NAME)
         self.boss_room = ["boss_room"]
-
-    # Randomly choose a room to be the boss room and add the boss key somewhere else in the dungeon
-    def generate_boss_room(self):
-        available_rooms = list(self.map.keys())
-        self.boss_room = random.choice(available_rooms)
-        boss_key_room = random.choice(available_rooms)
-        self.items[boss_key_room] = ["boss_key"]
-
-    # Spawn a key and chest in random rooms, ensuring equal numbers
-    def spawn_keys_and_chests(self):
-        rooms = list(self.map.keys())
-        num_keys = random.randint(1, len(rooms) // 2)
-        spawned_keys = random.sample(rooms, num_keys)
-        spawned_chests = random.sample(rooms, num_keys)
-
-        for i in range(num_keys):
-            key_room = spawned_keys[i]
-            chest_room = spawned_chests[i]
-            while chest_room == key_room:
-                chest_room = random.choice(rooms)
-            self.keys[key_room] = "key"
-            self.chests[chest_room] = "chest"
-
-    # Randomly spawns NPCs in random rooms
-    def spawn_npcs(self):
-        for room in self.map.keys():
-            if random.random() < 0.5:
-                self.npcs[room] = random.choice(NPCS)
-                self.items[room] = random.sample([key for key in ITEMS if key != "boss_key"], k=1)
 
     # Save game state to a file
     def save_state(self):
         state = {
             "player_hp": self.player_hp,
             "player_xp": self.player_xp,
+            "max_hp" : self.max_hp,
             "level": self.level,
             "inventory": self.inventory,
             "dungeon_name": self.dungeon_name,
@@ -142,7 +120,7 @@ class GameState:
             "items": self.items,
             "chests": self.chests,
             "keys": self.keys,
-            "boss_key": self.boss_key,
+            "boss": self.boss,
             "boss_room": self.boss_room
         }
         with open("game_state.json", "w") as f:
@@ -155,6 +133,7 @@ class GameState:
                 state = json.load(f)
                 self.player_hp = state["player_hp"]
                 self.player_xp = state["player_xp"]
+                MAX_HP = state["max_hp"]
                 self.level = state["level"]
                 self.inventory = state["inventory"]
                 self.dungeon_name = state["dungeon_name"]
@@ -165,7 +144,7 @@ class GameState:
                 self.items = state["items"]
                 self.chests = state["chests"]
                 self.keys = state["keys"]
-                self.boss_key = state["boss_key"]
+                self.boss = state["boss"]
                 self.boss_room = state["boss_room"]
         else:
             self.save_state()
@@ -175,6 +154,7 @@ class GameState:
         if self.player_xp >= self.level * XP_FOR_LEVEL_UP:
             self.level += 1
             self.player_hp += 10
+            MAX_HP == MAX_HP + 10
             print(f"Congratulations! You leveled up to level {self.level}!")
             print(f"Your HP is now {self.player_hp}.")
             return True
@@ -187,12 +167,23 @@ class GameState:
         else:
             print("Inventory:", ', '.join(self.inventory))
 
+    # Check if the player has a potion in their inventory then use it
+    def use_potion(self):
+        if "potion" in self.inventory:
+            self.player_hp += 20
+            if self.player_hp > MAX_HP:
+                self.player_hp = MAX_HP
+            print(f"You used a potion! Your HP is now {self.player_hp}.")
+            self.inventory.remove("potion")
+        else:
+            print("You don't have any potions in your inventory!")
+
     # Enters NPC combat, and if player wins, theey loot the body
     def encounter_npc(self):
         npc = self.npcs[self.current_room]
         print(f"A {npc} appears!")
 
-        action = input("Do you want to fight or run? (fight/run): ").strip().lower()
+        action = input("Do you want to fight, potion or run? (fight/potion/run): ").strip().lower()
         if action == "fight":
             npc_hp = 30
             player_attack = roll_dice(6) + 5
@@ -214,6 +205,41 @@ class GameState:
                 if self.player_hp <= 0:
                     print("You have been defeated.")
                     break
+        elif action == "potion":
+            self.use_potion(self)
+        elif action == "run":
+            print("You chose to run. The encounter ends.")
+
+
+    # Enters Boss combat
+    def encounter_boss(self):
+        boss = self.boss[self.current_room]
+        print(f"A {boss} appears!")
+
+        action = input("Do you want to fight, potion or run? (fight/potion/run): ").strip().lower()
+        if action == "fight":
+            boss_hp = 200
+            player_attack = roll_dice(6) + 5
+            boss_attack = roll_dice(6) + 5
+            print(f"Combat begins! You roll a {player_attack}, and the {boss} rolls a {boss_attack}.")
+            while self.player_hp > 0 and boss_hp > 0:
+                boss_hp -= player_attack
+                print(f"You hit the {boss}! {boss_hp} HP left.")
+                if boss_hp <= 0:
+                    print(f"You defeated the {boss}!")
+                    self.player_xp += 10
+                    self.check_level_up()
+                    loot = random.choice(["trophy"])
+                    print(f"The {boss} drops a {loot}!")
+                    self.inventory.append(loot)
+                    break
+                self.player_hp -= boss_attack
+                print(f"The {boss} hits you! {self.player_hp} HP left.")
+                if self.player_hp <= 0:
+                    print("You have been defeated.")
+                    break
+        elif action == "potion":
+            self.use_potion(self)
         elif action == "run":
             print("You chose to run. The encounter ends.")
 
@@ -250,6 +276,8 @@ class GameState:
             description = get_location_description(self.current_room, self)
             print(description)
 
+
+
 # Main function to run the game
 def main():
     print("Welcome to the AI Dungeon Master!")
@@ -262,12 +290,14 @@ def main():
         print(f"HP: {game_state.player_hp}, XP: {game_state.player_xp}")
         print(f"Inventory: {', '.join(game_state.inventory) if game_state.inventory else 'empty'}")
         
-        action = input("What do you want to do? (move/encounter/check inventory/save/quit): ").strip().lower()
+        action = input("What do you want to do? (move/encounter/challenge boss/check inventory/save/quit): ").strip().lower()
         
         if action == "move":
             game_state.move_player()
         elif action == "encounter":
             game_state.encounter_npc()
+        elif (action == "challenge boss" and game_state.current_room == game_state.boss_room):
+            game_state.encounter_boss()
         elif action == "check inventory":
             game_state.check_inventory()
         elif action == "save":
