@@ -3,11 +3,15 @@ import json
 import os
 from dotenv import load_dotenv
 import openai
+from openai import OpenAI
 
 # Load environment variables from .env file and get the OpenAi API key
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+client = OpenAI(
+    api_key=openai.api_key,
+)
 
 
 # Constants for game mechanics
@@ -36,22 +40,20 @@ def get_location_description(location_name, game_state):
     prompt = f"You are a dungeon master describing a fantasy dungeon room. The room is named '{location_name}'. "
     prompt += "Include details such as monsters, items, and the atmosphere of the room. "
     
-    # Adding specific details for the boss room or any room with items or NPCs
     if location_name == game_state.boss_room:
         prompt += f"The room is the {game_state.boss}'s lair, dark and foreboding. The air feels still and the room is ominous. The only enemy here is the boss."
     elif location_name in game_state.npcs:
         prompt += f"There is a {game_state.npcs[location_name]} lurking in this room."
     if location_name in game_state.items:
         prompt += f"You spot something valuable: a {game_state.items[location_name]}."
-
+    
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": "You are a dungeon master."}, 
-                      {"role": "user", "content": prompt}],
-            max_tokens=100
+        response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100
         )
-        description = response['choices'][0]['message']['content'].strip()
+        description = response.choices[0].message.content.strip()
         return description
     except Exception as e:
         print(f"Error generating location description: {e}")
@@ -60,12 +62,32 @@ def get_location_description(location_name, game_state):
 # Each time a room is entered, generate new connected rooms, with up to 1-3 new rooms
 def generate_new_rooms(current_room, existing_rooms, game_state):
     new_rooms = []
-    directions = random.sample(DIRECTIONS, random.randint(1, 3))
+    if current_room == "Entrance":
+        directions = DIRECTIONS
+    else:
+        directions = random.sample(DIRECTIONS, random.randint(1, 3))
+    
+    if current_room not in existing_rooms:
+        existing_rooms[current_room] = set()
+    
     for direction in directions:
         new_room_name = f"{current_room}_{direction}"
-        if new_room_name not in existing_rooms:
-            existing_rooms.add(new_room_name)
+        
+        if new_room_name not in existing_rooms[current_room]:
+            existing_rooms[current_room].add(new_room_name)
             new_rooms.append(new_room_name)
+            
+            # Ensure bidirectional connection by adding the reverse direction to the previous room
+            reverse_direction = {
+                "north": "south",
+                "south": "north",
+                "east": "west",
+                "west": "east"
+            }[direction]
+            reverse_room_name = f"{new_room_name}_{reverse_direction}"
+            if reverse_room_name not in existing_rooms:
+                existing_rooms[new_room_name] = set()
+            existing_rooms[new_room_name].add(f"{current_room}_{reverse_direction}")
             
             # 1% chance the new room is the boss room
             if random.random() < 0.01:
@@ -85,6 +107,7 @@ def generate_new_rooms(current_room, existing_rooms, game_state):
 
 
 
+
 # Game State
 class GameState:
     # Setting up initial game state
@@ -95,7 +118,7 @@ class GameState:
         self.level = 1
         self.inventory = []
         self.dungeon_name = generate_dungeon_name()
-        self.map = {"Entrance": []}
+        self.map = {"Entrance": set()}
         self.visited_rooms = set()
         self.current_room = "Entrance"
         self.npcs = {"Entrance": random.choice(NPCS)}
@@ -104,6 +127,8 @@ class GameState:
         self.keys = {}
         self.boss = random.choice(BOSS_NAME)
         self.boss_room = ["boss_room"]
+        self.map["Entrance"] = generate_new_rooms("Entrance", self.map, self)
+        self.visited_rooms.add("Entrance")
 
     # Save game state to a file
     def save_state(self):
@@ -244,38 +269,37 @@ class GameState:
         elif action == "run":
             print("You chose to run. The encounter ends.")
 
-        # Show available directions based on current room's exits, generates new rooms after moving, prints out new rooms description
-        def move_player(self):
-            print("Where do you want to go?")
-            if self.current_room not in self.map:
-                print("No available directions.")
-                return
+    # Show available directions based on current room's exits, generates new rooms after moving, prints out new rooms description
+    def move_player(self):
+        print("Where do you want to go?")
+        if self.current_room not in self.map:
+            print("No available directions.")
+            return
+        available_rooms = self.map[self.current_room]
+        if not available_rooms:
+            print("This room has no exits. It's a dead end!")
+            return
 
-            available_rooms = self.map[self.current_room]
-            if not available_rooms:
-                print("This room has no exits. It's a dead end!")
-                return
+        print("Available exits:", ', '.join(available_rooms))
+        direction = input("Enter a direction: ").strip().lower()
+        destination = self.current_room + "_" + direction
+        if destination not in available_rooms:
+            print("You can't go that way.")
+            return
 
-            print("Available exits:", ', '.join(available_rooms))
-            direction = input("Enter a direction: ").strip().lower()
-
-            if direction not in available_rooms:
-                print("You can't go that way.")
-                return
-
-            # Move to the new room
-            self.current_room = direction
-            if self.current_room not in self.visited_rooms:
-                print(f"You move to {self.current_room}.")
-                self.visited_rooms.add(self.current_room)
-                new_rooms = generate_new_rooms(self.current_room, self.map)
-                self.map[self.current_room].extend(new_rooms)
-            else:
-                print(f"You are already familiar with {self.current_room}.")
-            
-            # Print the room description
-            description = get_location_description(self.current_room, self)
-            print(description)
+        # Move to the new room
+        self.current_room = destination
+        if self.current_room not in self.visited_rooms:
+            print(f"You move to {self.current_room}.")
+            self.visited_rooms.add(self.current_room)
+            new_rooms = generate_new_rooms(self.current_room, self.map, self)
+            self.map[self.current_room].update(new_rooms)
+        else:
+            print(f"You are already familiar with {self.current_room}.")
+         
+        # Print the room description
+        description = get_location_description(self.current_room, self)
+        print(description)
 
 
 
