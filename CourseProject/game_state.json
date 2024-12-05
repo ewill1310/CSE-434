@@ -1,0 +1,1 @@
+{"player_hp": 50, "player_xp": 0, "max_hp": 50, "level": 1, "inventory": [], "dungeon_name": "Dungeon of Eternity", "map": {"Entrance": []}, "visited_rooms": [], "current_room": "Entrance", "npcs": {"Entrance": "Bandit"}, "items": {"Entrance": ["key"]}, "chests": {}, "keys": {}, "boss": "Lich King", "boss_room": ["boss_room"]}

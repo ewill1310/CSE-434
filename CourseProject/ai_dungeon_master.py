@@ -45,12 +45,13 @@ def get_location_description(location_name, game_state):
         prompt += f"You spot something valuable: a {game_state.items[location_name]}."
 
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=prompt,
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "system", "content": "You are a dungeon master."}, 
+                      {"role": "user", "content": prompt}],
             max_tokens=100
         )
-        description = response.choices[0].text.strip()
+        description = response['choices'][0]['message']['content'].strip()
         return description
     except Exception as e:
         print(f"Error generating location description: {e}")
