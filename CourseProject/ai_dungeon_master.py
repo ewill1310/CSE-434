@@ -19,6 +19,7 @@ class Room:
         self.npc = npc
         self.boss = boss
         self.connections = connections or {}
+        self.enemy_defeated = False  # Track if the enemy has been defeated
 
     def generate_random_room_description(self):
         prompt = f"Generate a description for a D&D room called {self.room_name}. It could be a normal room or a boss room."
@@ -32,11 +33,16 @@ class Room:
 
     def describe(self):
         room_description = f"Room {self.room_id} - {self.room_name}: {self.generate_random_room_description()}\n"
-        if self.npc:
+        if self.npc and not self.enemy_defeated:
             room_description += f"There is a {self.npc} here.\n"
-        if self.boss:
+        elif self.enemy_defeated:
+            room_description += "The room is empty. You've defeated the enemy!\n"
+        if self.boss and not self.enemy_defeated:
             room_description += "There is a terrifying boss here!\n"
         return room_description
+
+    def defeat_enemy(self):
+        self.enemy_defeated = True
 
     def to_dict(self):
         return {
@@ -44,18 +50,21 @@ class Room:
             "room_name": self.room_name,
             "npc": self.npc,
             "boss": self.boss,
-            "connections": self.connections
+            "connections": self.connections,
+            "enemy_defeated": self.enemy_defeated
         }
 
     @staticmethod
     def from_dict(data):
-        return Room(
+        room = Room(
             room_id=data["room_id"],
             room_name=data["room_name"],
             npc=data["npc"],
             boss=data["boss"],
             connections=data["connections"]
         )
+        room.enemy_defeated = data["enemy_defeated"]
+        return room
 
 
 class Player:
@@ -68,7 +77,7 @@ class Player:
     def attack(self, enemy_health):
         roll = random.randint(1, 20)
         damage = random.randint(5, 15)
-        if roll > 10:
+        if roll > 7:
             enemy_health -= damage
             return f"Attack successful! You dealt {damage} damage.", enemy_health
         else:
@@ -84,11 +93,14 @@ class Player:
 
     def flee(self):
         return "You fled the battle."
-
+    
     def move(self, direction, rooms):
         if direction in self.room.connections:
-            return rooms[self.room.connections[direction]]
+            new_room_id = self.room.connections[direction]
+            new_room = rooms.get(new_room_id)
+            return new_room
         else:
+            print("You can't move in that direction.")
             return None
 
     def to_dict(self):
@@ -197,6 +209,10 @@ def game_loop():
     previous_room = None
 
     while True:
+        if player.health <= 0:
+            print("Game Over! You've been defeated.")
+            break
+         
         print("\nChoose an action: (Type the number)")
         print("1. Move (north / south / east / west)")
         print("2. Fight")
@@ -238,22 +254,68 @@ def game_loop():
             else:
                 print("You can't move in that direction.")
         elif action == "2":
-            print("You prepare for combat.")
+            enemy_health = 50
+            while enemy_health > 0 and player.health > 0:
+                print("Choose your action:")
+                print("1. Attack")
+                print("2. Heal")
+                print("3. Flee")
+
+                combat_action = input("Action: ")
+
+                if combat_action == "1":
+                    result, enemy_health = player.attack(enemy_health)
+                    print(result)
+                    print(f"Enemy Health: {enemy_health}")
+                elif combat_action == "2":
+                    print(player.heal())
+                elif combat_action == "3":
+                    flee_chance = random.randint(1,20)
+                    if flee_chance > 13:
+                        print(player.flee())
+                        break
+                    else :
+                        print("Could Not Escape")
+                else:
+                    print("Invalid action.")
+
+                if enemy_health <= 0:
+                    print("You've defeated the enemy!")
+                    player.room.defeat_enemy()
+                    player.inventory.append("health_potion")
+                    print("Enemy dropped a health potion!\n")
+                    print(player.room.describe())
+                    break
+
+                # Enemy attacks back
+                enemy_attack = random.randint(1, 15)
+                if (enemy_attack >= 10):
+                    player.health -= enemy_attack
+                    print(f"The enemy attacks you for {enemy_attack} damage. Your health is now {player.health}.")
+                else:
+                    print(f"The enemy's attack missed!")
+                if player.health <= 0:
+                    break
+
         elif action == "3":
             print(player.heal())
+
         elif action == "4":
             print(f"Inventory: {player.inventory}")
+
         elif action == "5":
             save_state(player, rooms)
+
         elif action == "6":
             player, rooms = load_state()
             if player:
                 print(player.room.describe())
-        elif action == "7":
-            print("Thanks for playing!")
-            break
-        else:
-            print("Invalid action!")
 
-if __name__ == "__main__":
-    game_loop()
+        elif action == "7":
+            print("Goodbye!")
+            break
+
+        else:
+            print("Invalid action.")
+
+game_loop()
