@@ -7,22 +7,26 @@ from openai import OpenAI
 
 load_dotenv()
 
+# Load the API Key
 openai.api_key = os.getenv('OPENAI_API_KEY')
 client = OpenAI(
     api_key=openai.api_key,
 )
 
+# Creates the room class that will be used when making the dungeon map
 class Room:
+    # Constructor
     def __init__(self, room_id, room_name, npc=None, boss=False, connections=None):
         self.room_id = room_id
         self.room_name = room_name
         self.npc = npc
         self.boss = boss
         self.connections = connections or {}
-        self.enemy_defeated = False  # Track if the enemy has been defeated
+        self.enemy_defeated = False  
 
+    # Uses openai's gpt 3.5 model to create descriptions about each room and its atmosphere
     def generate_random_room_description(self):
-        prompt = f"Generate a description for a D&D room called {self.room_name}. It could be a normal room or a boss room."
+        prompt = f"Generate a description for a D&D room called {self.room_name}. It could be a normal room or a boss room. It has 4 paths leading to different rooms."
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
@@ -31,6 +35,7 @@ class Room:
         description = response.choices[0].message.content.strip()
         return description
 
+    # This method is used to attach the generated descriptions to rooms and update them accordingly
     def describe(self):
         room_description = f"Room {self.room_id} - {self.room_name}: {self.generate_random_room_description()}\n"
         if self.npc and not self.enemy_defeated:
@@ -41,9 +46,11 @@ class Room:
             room_description += "There is a terrifying boss here!\n"
         return room_description
 
+    # This method is used to tag a room, saying that the enemies in here have been defeated
     def defeat_enemy(self):
         self.enemy_defeated = True
 
+    # Turned the room into a dictonary for status storage
     def to_dict(self):
         return {
             "room_id": self.room_id,
@@ -54,6 +61,7 @@ class Room:
             "enemy_defeated": self.enemy_defeated
         }
 
+    # Turns a given dictionary back into a room for loading status
     @staticmethod
     def from_dict(data):
         room = Room(
@@ -66,14 +74,16 @@ class Room:
         room.enemy_defeated = data["enemy_defeated"]
         return room
 
-
+# This class is used to initialize the player and set up what they can do
 class Player:
+    # Constructor
     def __init__(self, name):
         self.name = name
         self.inventory = ["health_potion"]
         self.health = 100
         self.room = None
 
+    # Define the rules of how an attack works on an enemy
     def attack(self, enemy_health):
         roll = random.randint(1, 20)
         damage = random.randint(5, 15)
@@ -83,6 +93,7 @@ class Player:
         else:
             return "Attack missed!", enemy_health
 
+    # Uses a potion from the inventory and heals 20 damage
     def heal(self):
         if "health_potion" in self.inventory:
             self.health += 20
@@ -91,9 +102,11 @@ class Player:
         else:
             return "You have no potions left."
 
+    # Flee from combat
     def flee(self):
         return "You fled the battle."
     
+    # Moves the player to an adjacent room, either north, south, east, or west
     def move(self, direction, rooms):
         if direction in self.room.connections:
             new_room_id = self.room.connections[direction]
@@ -103,6 +116,7 @@ class Player:
             print("You can't move in that direction.")
             return None
 
+    # Turns the player and its info into a dictionary for status storage
     def to_dict(self):
         return {
             "name": self.name,
@@ -111,6 +125,7 @@ class Player:
             "room": self.room.room_id if self.room else None
         }
 
+    # Turns the dictionary into the player information for status loading
     @staticmethod
     def from_dict(data, rooms):
         player = Player(data["name"])
@@ -119,7 +134,7 @@ class Player:
         player.room = rooms.get(data["room"]) if data["room"] is not None else None
         return player
 
-
+# Creates an enemy or a boss in a room
 def generate_npc_or_boss():
     npc_chance = random.randint(1, 10)
     if npc_chance <= 7:
@@ -132,7 +147,7 @@ def generate_npc_or_boss():
         return "Dragon"
     return None
 
-
+# Creates the dungeon which holds a series of rooms
 def create_dungeon():
     rooms = {}
     room_count = 0
@@ -153,7 +168,7 @@ def create_dungeon():
 
     return rooms, start_room
 
-
+# To be used when attaching rooms together so they lead to eachother
 def get_opposite_direction(direction):
     opposite_directions = {
         "north": "south",
@@ -163,7 +178,7 @@ def get_opposite_direction(direction):
     }
     return opposite_directions[direction]
 
-
+# Saves the current state into a JSON file
 def save_state(player, rooms, filename="game_state.json"):
     game_state = {
         "player": player.to_dict(),
@@ -175,7 +190,7 @@ def save_state(player, rooms, filename="game_state.json"):
 
     print("Game state saved!")
 
-
+# Loads the provided JSON file so a saves state can be used
 def load_state(filename="game_state.json"):
     if not os.path.exists(filename):
         print("No saved state found!")
@@ -183,19 +198,16 @@ def load_state(filename="game_state.json"):
 
     with open(filename, 'r') as f:
         game_state = json.load(f)
-
     rooms = {room_data["room_id"]: Room.from_dict(room_data) for room_data in game_state["rooms"].values()}
-
     player_data = game_state["player"]
     player = Player.from_dict(player_data, rooms)
-
     player.room = rooms.get(player.room.room_id)
-
     print("Game state loaded!")
     return player, rooms
 
-
+# Runs the game by looping through a series of available player actions
 def game_loop():
+    # Sets a player name to make player feel more emmersed
     player_name = input("Enter your character's name: ")
     player = Player(player_name)
     rooms, start_room = create_dungeon()
@@ -212,7 +224,7 @@ def game_loop():
         if player.health <= 0:
             print("Game Over! You've been defeated.")
             break
-         
+        # List of player options 
         print("\nChoose an action: (Type the number)")
         print("1. Move (north / south / east / west)")
         print("2. Fight")
@@ -223,7 +235,7 @@ def game_loop():
         print("7. Quit")
 
         action = input("Action: ")
-
+        # Handles player movement
         if action == "1":
             direction = input("Which direction would you like to move? (north / south / east / west): ").lower()
             if direction in player.room.connections:
@@ -232,7 +244,6 @@ def game_loop():
                     previous_room = player.room
                     player.room = new_room
                     visited_rooms.add(player.room.room_id)
-
                     for direction in ["north", "south", "east", "west"]:
                         if direction not in player.room.connections:
                             room_name = f"Room {len(rooms)+1}"
@@ -253,6 +264,7 @@ def game_loop():
                     print("You can't move in that direction.")
             else:
                 print("You can't move in that direction.")
+        # Handles combat actions
         elif action == "2":
             enemy_health = 50
             while enemy_health > 0 and player.health > 0:
@@ -262,13 +274,15 @@ def game_loop():
                 print("3. Flee")
 
                 combat_action = input("Action: ")
-
+                # attacking
                 if combat_action == "1":
                     result, enemy_health = player.attack(enemy_health)
                     print(result)
                     print(f"Enemy Health: {enemy_health}")
+                # healing
                 elif combat_action == "2":
                     print(player.heal())
+                # trying to flee
                 elif combat_action == "3":
                     flee_chance = random.randint(1,20)
                     if flee_chance > 13:
@@ -279,6 +293,7 @@ def game_loop():
                 else:
                     print("Invalid action.")
 
+                # For if an enemy dies
                 if enemy_health <= 0:
                     print("You've defeated the enemy!")
                     player.room.defeat_enemy()
@@ -296,26 +311,27 @@ def game_loop():
                     print(f"The enemy's attack missed!")
                 if player.health <= 0:
                     break
-
+        # Heals outside of combat
         elif action == "3":
             print(player.heal())
-
+        # Checks players inventory
         elif action == "4":
             print(f"Inventory: {player.inventory}")
-
+        # Saves game state
         elif action == "5":
             save_state(player, rooms)
-
+        # Loads game state
         elif action == "6":
             player, rooms = load_state()
             if player:
                 print(player.room.describe())
-
+        # Quits game
         elif action == "7":
             print("Goodbye!")
             break
-
+        # Handles all other inputs
         else:
             print("Invalid action.")
 
+# Actually runs game
 game_loop()
