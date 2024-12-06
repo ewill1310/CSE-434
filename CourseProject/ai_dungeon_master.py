@@ -1,19 +1,17 @@
 import os
+import json
 from dotenv import load_dotenv
 import random
 import openai
 from openai import OpenAI
 
-# Load environment variables from the .env file
 load_dotenv()
 
-# Get OpenAI API Key from the environment variable
 openai.api_key = os.getenv('OPENAI_API_KEY')
 client = OpenAI(
     api_key=openai.api_key,
 )
 
-# Define the Room class
 class Room:
     def __init__(self, room_id, room_name, npc=None, boss=False, connections=None):
         self.room_id = room_id
@@ -40,8 +38,26 @@ class Room:
             room_description += "There is a terrifying boss here!\n"
         return room_description
 
+    def to_dict(self):
+        return {
+            "room_id": self.room_id,
+            "room_name": self.room_name,
+            "npc": self.npc,
+            "boss": self.boss,
+            "connections": self.connections
+        }
 
-# Define the Player class
+    @staticmethod
+    def from_dict(data):
+        return Room(
+            room_id=data["room_id"],
+            room_name=data["room_name"],
+            npc=data["npc"],
+            boss=data["boss"],
+            connections=data["connections"]
+        )
+
+
 class Player:
     def __init__(self, name):
         self.name = name
@@ -51,7 +67,7 @@ class Player:
 
     def attack(self, enemy_health):
         roll = random.randint(1, 20)
-        damage = random.randint(5, 25) 
+        damage = random.randint(5, 15)
         if roll > 10:
             enemy_health -= damage
             return f"Attack successful! You dealt {damage} damage.", enemy_health
@@ -60,60 +76,52 @@ class Player:
 
     def heal(self):
         if "health_potion" in self.inventory:
-            heal_amount = 20
-            self.health += heal_amount
-            self.inventory.remove("health_potion")  # Remove the potion after use
-            print(f"You used a health potion and healed {heal_amount} health.")
+            self.health += 20
+            self.inventory.remove("health_potion")
+            return "You healed yourself with a potion."
         else:
-            print("You have no health potions left.")
+            return "You have no potions left."
 
     def flee(self):
         return "You fled the battle."
 
     def move(self, direction, rooms):
-        # Check if the direction exists, otherwise generate the missing room
         if direction in self.room.connections:
-            new_room = rooms[self.room.connections[direction]]
+            return rooms[self.room.connections[direction]]
         else:
-            # Generate the missing room
-            new_room = self.create_new_room(direction, rooms)
+            return None
 
-        return new_room
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "inventory": self.inventory,
+            "health": self.health,
+            "room": self.room.room_id if self.room else None
+        }
 
-    def create_new_room(self, direction, rooms):
-        # Create a new room in the given direction
-        global room_count  # Ensure to use the global room_count variable
-        room_name = f"Room {room_count}"
-        npc = generate_npc_or_boss()
-        boss = random.choice([True, False])
-        new_room = Room(room_count, room_name, npc=npc, boss=boss)
-        
-        # Connect the new room to the current room
-        self.room.connections[direction] = new_room.room_id
-        new_room.connections[get_opposite_direction(direction)] = self.room.room_id
-        rooms[room_count] = new_room
-        
-        room_count += 1
-        return new_room
+    @staticmethod
+    def from_dict(data, rooms):
+        player = Player(data["name"])
+        player.inventory = data["inventory"]
+        player.health = data["health"]
+        player.room = rooms.get(data["room"]) if data["room"] is not None else None
+        return player
 
 
-# Function to generate NPC or Boss chance
 def generate_npc_or_boss():
     npc_chance = random.randint(1, 10)
     if npc_chance <= 7:
-        return "Goblin"  # 70% chance of goblin
+        return "Goblin"
     elif npc_chance == 8:
-        return "Orc"  # 10% chance of orc
+        return "Orc"
     elif npc_chance == 9:
-        return "Troll"  # 10% chance of troll
+        return "Troll"
     elif npc_chance == 10:
-        return "Dragon"  # 10% chance of boss (Dragon)
+        return "Dragon"
     return None
 
 
-# Create dungeon map and state management
 def create_dungeon():
-    global room_count  # Use global room_count variable to maintain unique IDs
     rooms = {}
     room_count = 0
     start_room = Room(room_count, "Start Room", npc=generate_npc_or_boss(), boss=random.choice([True, False]))
@@ -121,7 +129,6 @@ def create_dungeon():
     room_count += 1
     current_room = start_room
 
-    # Initially create 4 neighboring rooms for the start room
     for direction in ["north", "south", "east", "west"]:
         room_name = f"Room {room_count}"
         npc = generate_npc_or_boss()
@@ -145,43 +152,37 @@ def get_opposite_direction(direction):
     return opposite_directions[direction]
 
 
-# Combat loop
-def combat(player, enemy):
-    enemy_health = 40
+def save_state(player, rooms, filename="game_state.json"):
+    game_state = {
+        "player": player.to_dict(),
+        "rooms": {room_id: room.to_dict() for room_id, room in rooms.items()}
+    }
 
-    while enemy_health > 0 and player.health > 0:
-        print(f"\nYour health: {player.health} | Enemy ({enemy}) health: {enemy_health}")
-        print("1. Attack")
-        print("2. Heal")
-        print("3. Flee")
+    with open(filename, 'w') as f:
+        json.dump(game_state, f, indent=4)
 
-        action = input("What will you do? ")
+    print("Game state saved!")
 
-        if action == "1":
-            attack_result, enemy_health = player.attack(enemy_health)
-            print(attack_result)
-        elif action == "2":
-            player.heal()
-        elif action == "3":
-            print(player.flee())
-            break
-        else:
-            print("Invalid action.")
 
-        # If the enemy is still alive, they attack the player
-        if enemy_health > 0:
-            enemy_attack = random.randint(5, 10)
-            player.health -= enemy_attack
-            print(f"The {enemy} attacks! You take {enemy_attack} damage.")
-        else:
-            print(f"The {enemy} has been defeated!")
-            player.inventory.append("health_potion")
-            print("The enemy dropped a health potion!")
+def load_state(filename="game_state.json"):
+    if not os.path.exists(filename):
+        print("No saved state found!")
+        return None, None
 
-    if player.health <= 0:
-        print("You have been defeated!")
+    with open(filename, 'r') as f:
+        game_state = json.load(f)
 
-# Game loop
+    rooms = {room_data["room_id"]: Room.from_dict(room_data) for room_data in game_state["rooms"].values()}
+
+    player_data = game_state["player"]
+    player = Player.from_dict(player_data, rooms)
+
+    player.room = rooms.get(player.room.room_id)
+
+    print("Game state loaded!")
+    return player, rooms
+
+
 def game_loop():
     player_name = input("Enter your character's name: ")
     player = Player(player_name)
@@ -201,37 +202,58 @@ def game_loop():
         print("2. Fight")
         print("3. Heal")
         print("4. Check Inventory")
-        print("5. Quit")
+        print("5. Save Game")
+        print("6. Load Game")
+        print("7. Quit")
 
         action = input("Action: ")
 
         if action == "1":
             direction = input("Which direction would you like to move? (north / south / east / west): ").lower()
-            new_room = player.move(direction, rooms)
-            player.room = new_room
-            print(player.room.describe())
+            if direction in player.room.connections:
+                new_room = player.move(direction, rooms)
+                if new_room:
+                    previous_room = player.room
+                    player.room = new_room
+                    visited_rooms.add(player.room.room_id)
 
-        elif action == "2":
-            if player.room.npc:
-                enemy = player.room.npc
-                combat(player, enemy)
+                    for direction in ["north", "south", "east", "west"]:
+                        if direction not in player.room.connections:
+                            room_name = f"Room {len(rooms)+1}"
+                            npc = generate_npc_or_boss()
+                            boss = random.choice([True, False])
+                            room = Room(len(rooms), room_name, npc=npc, boss=boss)
+                            player.room.connections[direction] = room.room_id
+                            room.connections[get_opposite_direction(direction)] = player.room.room_id
+                            rooms[len(rooms)] = room
+
+                    if previous_room:
+                        previous_room.connections[get_opposite_direction(direction)] = player.room.room_id
+                        player.room.connections[get_opposite_direction(direction)] = previous_room.room_id
+
+                    print(player.room.describe())
+
+                else:
+                    print("You can't move in that direction.")
             else:
-                print("There are no enemies in this room.")
-
+                print("You can't move in that direction.")
+        elif action == "2":
+            print("You prepare for combat.")
         elif action == "3":
-            player.heal()  # Heal by using a health potion
-
+            print(player.heal())
         elif action == "4":
-            print("Your health:", player.health)
-            print("Your inventory:", player.inventory)
-
+            print(f"Inventory: {player.inventory}")
         elif action == "5":
-            print("You quit the game. Goodbye!")
+            save_state(player, rooms)
+        elif action == "6":
+            player, rooms = load_state()
+            if player:
+                print(player.room.describe())
+        elif action == "7":
+            print("Thanks for playing!")
             break
-
         else:
-            print("Invalid action.")
-
+            print("Invalid action!")
 
 if __name__ == "__main__":
     game_loop()
