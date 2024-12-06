@@ -227,7 +227,7 @@ def game_loop():
         # List of player options 
         print("\nChoose an action: (Type the number)")
         print("1. Move (north / south / east / west)")
-        print("2. Fight")
+        print("2. Enter Combat")
         print("3. Heal")
         print("4. Check Inventory")
         print("5. Save Game")
@@ -268,7 +268,7 @@ def game_loop():
         elif action == "2":
             enemy_health = 50
             while enemy_health > 0 and player.health > 0:
-                print("Choose your action:")
+                print("Choose your combat action:")
                 print("1. Attack")
                 print("2. Heal")
                 print("3. Flee")
