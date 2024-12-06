@@ -20,7 +20,7 @@ class Room:
         self.room_name = room_name
         self.npc = npc
         self.boss = boss
-        self.connections = connections or {}  # Dictionary to hold neighboring rooms
+        self.connections = connections or {}
 
     def generate_random_room_description(self):
         prompt = f"Generate a description for a D&D room called {self.room_name}. It could be a normal room or a boss room."
@@ -47,33 +47,54 @@ class Player:
         self.name = name
         self.inventory = ["health_potion"]
         self.health = 100
-        self.room = None  # Current room
+        self.room = None
 
     def attack(self, enemy_health):
-        roll = random.randint(1, 20)  # D20 for attack roll
-        damage = random.randint(5, 15)  # Random damage
+        roll = random.randint(1, 20)
+        damage = random.randint(5, 25) 
         if roll > 10:
             enemy_health -= damage
-            return f"Attack successful! You dealt {damage} damage."
+            return f"Attack successful! You dealt {damage} damage.", enemy_health
         else:
-            return "Attack missed!"
+            return "Attack missed!", enemy_health
 
     def heal(self):
         if "health_potion" in self.inventory:
-            self.health += 20
-            self.inventory.remove("health_potion")
-            return "You healed yourself with a potion."
+            heal_amount = 20
+            self.health += heal_amount
+            self.inventory.remove("health_potion")  # Remove the potion after use
+            print(f"You used a health potion and healed {heal_amount} health.")
         else:
-            return "You have no potions left."
+            print("You have no health potions left.")
 
     def flee(self):
         return "You fled the battle."
 
     def move(self, direction, rooms):
+        # Check if the direction exists, otherwise generate the missing room
         if direction in self.room.connections:
-            return rooms[self.room.connections[direction]]
+            new_room = rooms[self.room.connections[direction]]
         else:
-            return None  # Invalid direction
+            # Generate the missing room
+            new_room = self.create_new_room(direction, rooms)
+
+        return new_room
+
+    def create_new_room(self, direction, rooms):
+        # Create a new room in the given direction
+        global room_count  # Ensure to use the global room_count variable
+        room_name = f"Room {room_count}"
+        npc = generate_npc_or_boss()
+        boss = random.choice([True, False])
+        new_room = Room(room_count, room_name, npc=npc, boss=boss)
+        
+        # Connect the new room to the current room
+        self.room.connections[direction] = new_room.room_id
+        new_room.connections[get_opposite_direction(direction)] = self.room.room_id
+        rooms[room_count] = new_room
+        
+        room_count += 1
+        return new_room
 
 
 # Function to generate NPC or Boss chance
@@ -92,6 +113,7 @@ def generate_npc_or_boss():
 
 # Create dungeon map and state management
 def create_dungeon():
+    global room_count  # Use global room_count variable to maintain unique IDs
     rooms = {}
     room_count = 0
     start_room = Room(room_count, "Start Room", npc=generate_npc_or_boss(), boss=random.choice([True, False]))
@@ -114,7 +136,6 @@ def create_dungeon():
 
 
 def get_opposite_direction(direction):
-    """Return the opposite direction."""
     opposite_directions = {
         "north": "south",
         "south": "north",
@@ -124,6 +145,42 @@ def get_opposite_direction(direction):
     return opposite_directions[direction]
 
 
+# Combat loop
+def combat(player, enemy):
+    enemy_health = 40
+
+    while enemy_health > 0 and player.health > 0:
+        print(f"\nYour health: {player.health} | Enemy ({enemy}) health: {enemy_health}")
+        print("1. Attack")
+        print("2. Heal")
+        print("3. Flee")
+
+        action = input("What will you do? ")
+
+        if action == "1":
+            attack_result, enemy_health = player.attack(enemy_health)
+            print(attack_result)
+        elif action == "2":
+            player.heal()
+        elif action == "3":
+            print(player.flee())
+            break
+        else:
+            print("Invalid action.")
+
+        # If the enemy is still alive, they attack the player
+        if enemy_health > 0:
+            enemy_attack = random.randint(5, 10)
+            player.health -= enemy_attack
+            print(f"The {enemy} attacks! You take {enemy_attack} damage.")
+        else:
+            print(f"The {enemy} has been defeated!")
+            player.inventory.append("health_potion")
+            print("The enemy dropped a health potion!")
+
+    if player.health <= 0:
+        print("You have been defeated!")
+
 # Game loop
 def game_loop():
     player_name = input("Enter your character's name: ")
@@ -131,12 +188,12 @@ def game_loop():
     rooms, start_room = create_dungeon()
 
     player.room = start_room
-    print(player.room.describe())  # Show the start room description
+    print(player.room.describe())
 
-    visited_rooms = set()  # Keep track of visited rooms for backtracking
-    visited_rooms.add(player.room.room_id)  # Add the start room as visited
+    visited_rooms = set()
+    visited_rooms.add(player.room.room_id)
 
-    previous_room = None  # To store the previous room for backtracking
+    previous_room = None
 
     while True:
         print("\nChoose an action: (Type the number)")
@@ -150,62 +207,19 @@ def game_loop():
 
         if action == "1":
             direction = input("Which direction would you like to move? (north / south / east / west): ").lower()
-            if direction in player.room.connections:
-                new_room = player.move(direction, rooms)
-                if new_room:
-                    # Save the current room as the previous room for backtracking
-                    previous_room = player.room
-                    player.room = new_room
-                    visited_rooms.add(player.room.room_id)  # Mark the new room as visited
-
-                    # Ensure all 4 neighboring rooms are generated (if not already done)
-                    for direction in ["north", "south", "east", "west"]:
-                        if direction not in player.room.connections:
-                            room_name = f"Room {len(rooms)+1}"
-                            npc = generate_npc_or_boss()
-                            boss = random.choice([True, False])
-                            room = Room(len(rooms), room_name, npc=npc, boss=boss)
-                            player.room.connections[direction] = room.room_id
-                            room.connections[get_opposite_direction(direction)] = player.room.room_id
-                            rooms[len(rooms)] = room
-
-                    # Ensure the previous room maintains the connection to the new room
-                    if previous_room:
-                        previous_room.connections[get_opposite_direction(direction)] = player.room.room_id
-                        player.room.connections[get_opposite_direction(direction)] = previous_room.room_id
-
-                    # Print the new room's description only
-                    print(player.room.describe())
-
-                else:
-                    print("You can't move in that direction.")
-            else:
-                print("You can't move in that direction.")
+            new_room = player.move(direction, rooms)
+            player.room = new_room
+            print(player.room.describe())
 
         elif action == "2":
             if player.room.npc:
-                print(f"A wild {player.room.npc} appears!")
-                print("1. Attack")
-                print("2. Heal")
-                print("3. Flee")
-                choice = input("What will you do? ")
-
-                if choice == "1":
-                    attack_result = player.attack(100)
-                    print(attack_result)
-                elif choice == "2":
-                    heal_result = player.heal()
-                    print(heal_result)
-                elif choice == "3":
-                    flee_result = player.flee()
-                    print(flee_result)
-                else:
-                    print("Invalid action.")
+                enemy = player.room.npc
+                combat(player, enemy)
             else:
                 print("There are no enemies in this room.")
 
         elif action == "3":
-            print("Your inventory:", player.inventory)
+            player.heal()  # Heal by using a health potion
 
         elif action == "4":
             print("Your health:", player.health)
